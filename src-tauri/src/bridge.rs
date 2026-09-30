@@ -19,8 +19,11 @@ use chacha20poly1305::{Key, KeyInit, XChaCha20Poly1305};
 use rand::RngExt;
 use serde_json::{json, Value};
 use windows::{
-    core::{HSTRING, PCWSTR},
-    Win32::System::Registry::{RegDeleteKeyW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ},
+    core::{w, HSTRING, PCWSTR},
+    Win32::{
+        System::Registry::{RegDeleteKeyW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ},
+        UI::WindowsAndMessaging::FindWindowW,
+    },
 };
 
 use crate::{decrypt, encrypt, err, os_rng};
@@ -50,14 +53,79 @@ pub fn is_native_host() -> bool {
 }
 
 /// Relays native messages (32-bit length + JSON) between the browser and the running app.
+/// Opening or unlocking starts the app first when it is not already running.
 pub fn run_native_host() {
     let (mut input, mut output) = (io::stdin().lock(), io::stdout().lock());
     while let Some(message) = read_message(&mut input) {
-        let reply = forward(&bridge_file(), &message).unwrap_or_else(|e| json!({ "error": e }).to_string());
+        let english = serde_json::from_str::<Value>(&message)
+            .ok()
+            .and_then(|value| value["lang"].as_str().map(|lang| lang == "en"))
+            .unwrap_or(false);
+        crate::i18n::set_english(english);
+        let reply = deliver(&message);
         if write_message(&mut output, &reply).is_err() {
             break;
         }
     }
+}
+
+fn message_type(message: &str) -> Option<String> {
+    serde_json::from_str::<Value>(message)
+        .ok()
+        .and_then(|value| value["type"].as_str().map(str::to_string))
+}
+
+fn starts_app(message: &str) -> bool {
+    matches!(message_type(message).as_deref(), Some("open" | "unlock" | "unlock_hello"))
+}
+
+fn deliver(message: &str) -> String {
+    let launch = starts_app(message);
+    match forward(&bridge_file(), message) {
+        Ok(reply) => reply,
+        Err(error) if error == NOT_RUNNING && launch => match launch_app().and_then(|()| wait_for_app(message)) {
+            Ok(reply) => reply,
+            Err(error) => json!({ "error": error }).to_string(),
+        },
+        Err(error) if error == NOT_RUNNING => {
+            json!({ "error": crate::i18n::tr(NOT_RUNNING, "Arca is not open") }).to_string()
+        }
+        Err(error) => json!({ "error": error }).to_string(),
+    }
+}
+
+fn app_is_open() -> bool {
+    unsafe { FindWindowW(w!("Tauri Window"), w!("Arca")) }.is_ok()
+}
+
+fn launch_app() -> Result<(), String> {
+    if app_is_open() {
+        return Err(crate::i18n::tr(
+            "Arca está abierta, pero la integración con el navegador está desactivada",
+            "Arca is open, but browser integration is turned off",
+        ));
+    }
+    std::process::Command::new(env::current_exe().map_err(err)?)
+        .spawn()
+        .map_err(|_| crate::i18n::tr("No se pudo abrir Arca", "Could not open Arca"))?;
+    Ok(())
+}
+
+fn wait_for_app(message: &str) -> Result<String, String> {
+    for _ in 0..80 {
+        thread::sleep(Duration::from_millis(250));
+        if let Ok(reply) = forward(&bridge_file(), message) {
+            return Ok(reply);
+        }
+    }
+    Err(if app_is_open() {
+        crate::i18n::tr(
+            "Arca está abierta, pero la integración con el navegador está desactivada",
+            "Arca is open, but browser integration is turned off",
+        )
+    } else {
+        crate::i18n::tr("Arca no llegó a abrirse", "Arca did not finish opening")
+    })
 }
 
 fn read_message(input: &mut impl Read) -> Option<String> {
@@ -94,7 +162,7 @@ fn seal(cipher: &XChaCha20Poly1305, message: &str) -> Result<String, String> {
 }
 
 fn open(cipher: &XChaCha20Poly1305, line: &str) -> Result<String, String> {
-    let data = from_hex(line.trim()).ok_or("Mensaje dañado")?;
+    let data = from_hex(line.trim()).ok_or_else(|| crate::i18n::tr("Mensaje dañado", "Damaged message"))?;
     String::from_utf8(decrypt(cipher, &data)?).map_err(err)
 }
 
@@ -114,7 +182,7 @@ fn forward(bridge: &Path, message: &str) -> Result<String, String> {
     writeln!(stream, "{}", seal(&cipher, message)?).map_err(err)?;
     let mut reply = String::new();
     BufReader::new(&stream).read_line(&mut reply).map_err(|_| NOT_RUNNING)?;
-    open(&cipher, &reply).map_err(|_| "Arca respondió algo inesperado".into())
+    open(&cipher, &reply).map_err(|_| crate::i18n::tr("Arca respondió algo inesperado", "Arca sent an unexpected reply"))
 }
 
 /// Answers extension requests on a random loopback port for as long as the app runs.
@@ -201,6 +269,14 @@ fn set_default_value(key: &str, value: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_session_actions_start_the_app() {
+        assert!(starts_app(r#"{"type":"unlock","password":"x"}"#));
+        assert!(starts_app(r#"{"type":"open"}"#));
+        assert!(!starts_app(r#"{"type":"logins","url":"https://github.com"}"#));
+        assert!(!starts_app("no es json"));
+    }
 
     #[test]
     fn native_messages_round_trip() {

@@ -1,4 +1,5 @@
 mod bridge;
+mod i18n;
 mod platform;
 
 use std::{
@@ -93,11 +94,11 @@ fn encrypt(cipher: &XChaCha20Poly1305, plain: &[u8]) -> Result<Vec<u8>, String> 
 }
 
 fn decrypt(cipher: &XChaCha20Poly1305, data: &[u8]) -> Result<Vec<u8>, String> {
-    let (nonce, ciphertext) = data.split_at_checked(NONCE_LEN).ok_or("Datos dañados")?;
+    let (nonce, ciphertext) = data.split_at_checked(NONCE_LEN).ok_or_else(|| i18n::tr("Datos dañados", "Damaged data"))?;
     let nonce = XNonce::try_from(nonce).map_err(err)?;
     cipher
         .decrypt(&nonce, ciphertext)
-        .map_err(|_| "No se pudo descifrar".into())
+        .map_err(|_| i18n::tr("No se pudo descifrar", "Could not decrypt"))
 }
 
 fn decode(cipher: &XChaCha20Poly1305, data: &[u8]) -> Result<Entry, String> {
@@ -107,7 +108,10 @@ fn decode(cipher: &XChaCha20Poly1305, data: &[u8]) -> Result<Entry, String> {
 /// Wraps the vault key with a key derived from the master password; returns (salt, wrapped key).
 fn wrap(password: &str, vault_key: &[u8]) -> Result<([u8; 16], Vec<u8>), String> {
     if password.chars().count() < 8 {
-        return Err("La contraseña maestra debe tener al menos 8 caracteres".into());
+        return Err(i18n::tr(
+            "La contraseña maestra debe tener al menos 8 caracteres",
+            "The master password must be at least 8 characters",
+        ));
     }
     let salt: [u8; 16] = os_rng().random();
     Ok((salt, encrypt(&derive_key(password.as_bytes(), &salt)?, vault_key)?))
@@ -133,7 +137,7 @@ impl Vault {
     }
 
     fn cipher(&self) -> Result<&XChaCha20Poly1305, String> {
-        self.cipher.as_ref().ok_or_else(|| LOCKED.into())
+        self.cipher.as_ref().ok_or_else(|| i18n::tr(LOCKED, "The vault is locked"))
     }
 
     fn browser_integration(&self) -> Result<bool, String> {
@@ -172,12 +176,17 @@ impl Vault {
         self.logins(url)?
             .into_iter()
             .find(|e| e.id == Some(id))
-            .ok_or_else(|| "Esa entrada no pertenece a este sitio".into())
+            .ok_or_else(|| i18n::tr("Esa entrada no pertenece a este sitio", "That entry does not belong to this site"))
     }
 
     /// Whether the credentials are "new", an "update" of a saved login or the "same"; writes them if `write`.
     fn save_login(&self, url: &str, username: &str, password: &str, write: bool) -> Result<&'static str, String> {
-        let site = page_site(url).ok_or("Arca solo guarda contraseñas de sitios https")?;
+        let site = page_site(url).ok_or_else(|| {
+            i18n::tr(
+                "Arca solo guarda contraseñas de sitios https",
+                "Arca only saves passwords from https sites",
+            )
+        })?;
         let status = match self.logins(url)?.into_iter().find(|e| e.username == username) {
             Some(e) if e.password == password => "same",
             Some(e) => {
@@ -244,7 +253,7 @@ impl Vault {
             })
             .map_err(err)?;
         decrypt(&derive_key(password.as_bytes(), &salt)?, &wrapped)
-            .map_err(|_| "Contraseña incorrecta".into())
+            .map_err(|_| i18n::tr("Contraseña incorrecta", "Wrong password"))
     }
 
     fn set_key(&mut self, vault_key: &[u8]) -> Result<(), String> {
@@ -293,7 +302,7 @@ impl Vault {
             })
             .map_err(err)?;
         let vault_key = decrypt(&derive_key(signature, &challenge)?, &wrapped)
-            .map_err(|_| "Windows Hello no pudo desbloquear la bóveda")?;
+            .map_err(|_| i18n::tr("Windows Hello no pudo desbloquear la bóveda", "Windows Hello could not unlock the vault"))?;
         self.set_key(&vault_key)
     }
 
@@ -378,7 +387,7 @@ impl Vault {
     /// Restores the backup into an empty vault, or merges its entries into the open one.
     fn import_backup(&self, path: &Path) -> Result<usize, String> {
         let (salt, vault_key, blobs) =
-            read_backup(path).map_err(|_| "El archivo no es un backup de Arca")?;
+            read_backup(path).map_err(|_| i18n::tr("El archivo no es un backup de Arca", "This file is not an Arca backup"))?;
         if !self.exists()? {
             let tx = self.db.unchecked_transaction().map_err(err)?;
             tx.execute(
@@ -397,7 +406,7 @@ impl Vault {
         let entries = blobs
             .iter()
             .map(|data| {
-                decode(cipher, data).map_err(|_| "Este backup es de otra bóveda".to_string())
+                decode(cipher, data).map_err(|_| i18n::tr("Este backup es de otra bóveda", "This backup belongs to another vault"))
             })
             .collect::<Result<_, _>>()?;
         self.add_entries(entries)
@@ -496,7 +505,10 @@ fn entries_from_csv(text: &str) -> Result<Vec<Entry>, String> {
     ];
     let [title, username, password, url, notes, favorite] = names.map(column);
     if password.is_none() {
-        return Err("El CSV no tiene una columna de contraseñas".into());
+        return Err(i18n::tr(
+            "El CSV no tiene una columna de contraseñas",
+            "The CSV has no password column",
+        ));
     }
     Ok(rows
         .filter(|row| row.iter().any(|field| !field.is_empty()))
@@ -508,7 +520,7 @@ fn entries_from_csv(text: &str) -> Result<Vec<Entry>, String> {
                 title: [get(title), host(&url)]
                     .into_iter()
                     .find(|t| !t.is_empty())
-                    .unwrap_or_else(|| "Sin título".into()),
+                    .unwrap_or_else(|| i18n::tr("Sin título", "Untitled")),
                 username: get(username),
                 password: get(password),
                 notes: get(notes),
@@ -543,15 +555,28 @@ fn lock_vault(app: &AppHandle) {
 
 /// Answers the browser extension. `url` is always the page the extension acts on, as reported by
 /// the browser, so a site can only ever reach its own logins.
-fn bridge_request(vault: &Vault, request: &Value) -> Result<Value, String> {
+fn bridge_request(vault: &mut Vault, request: &Value) -> Result<Value, String> {
     if !vault.browser_integration()? {
-        return Err("Activa la integración con el navegador en los ajustes de Arca".into());
+        return Err(i18n::tr(
+            "Activa la integración con el navegador en los ajustes de Arca",
+            "Turn on browser integration in Arca's settings",
+        ));
     }
     let text = |key: &str| request[key].as_str().unwrap_or_default();
     let (url, id) = (text("url"), request["id"].as_i64().unwrap_or_default());
     let unlocked = vault.cipher.is_some();
     match text("type") {
-        "status" => Ok(json!({ "unlocked": unlocked })),
+        "status" | "open" => Ok(json!({ "unlocked": unlocked, "opened": text("type") == "open" })),
+        "hello_status" => {
+            let enabled = vault.hello_challenge()?.is_some();
+            Ok(json!({ "available": platform::hello_available() && enabled, "enabled": enabled }))
+        }
+        "unlock" => {
+            if vault.cipher.is_none() {
+                vault.unlock(text("password"))?;
+            }
+            Ok(json!({ "unlocked": true }))
+        }
         "generate" => Ok(json!({ "password": generate_password(20, true, true, true, true)? })),
         "copy_text" => copy_to_clipboard(text("text").into()).map(|_| json!({})),
         _ if !unlocked => Ok(json!({ "locked": true })),
@@ -569,8 +594,64 @@ fn bridge_request(vault: &Vault, request: &Value) -> Result<Value, String> {
         "save_status" | "save" => vault
             .save_login(url, text("username"), text("password"), text("type") == "save")
             .map(|status| json!({ "status": status })),
-        _ => Err("Solicitud desconocida".into()),
+        _ => Err(i18n::tr("Solicitud desconocida", "Unknown request")),
     }
+}
+
+/// Windows Hello prompts outside the vault lock, so the window stays responsive.
+fn unlock_from_hello(app: &AppHandle) -> Value {
+    let result = (|| -> Result<(), String> {
+        let challenge = {
+            let state = app.state::<AppState>();
+            let vault = state.lock().map_err(err)?;
+            if !vault.browser_integration()? {
+                return Err(i18n::tr(
+                    "Activa la integración con el navegador en los ajustes de Arca",
+                    "Turn on browser integration in Arca's settings",
+                ));
+            }
+            if vault.cipher.is_some() {
+                return Ok(());
+            }
+            vault
+                .hello_challenge()?
+                .ok_or_else(|| i18n::tr("Windows Hello no está activado para Arca", "Windows Hello is not turned on for Arca"))?
+        };
+        let signature = platform::hello_sign(&challenge, false)?;
+        app.state::<AppState>().lock().map_err(err)?.unlock_with_signature(&signature)
+    })();
+    match result {
+        Ok(()) => {
+            let _ = app.emit("unlocked", ());
+            json!({ "unlocked": true })
+        }
+        Err(error) => json!({ "error": error }),
+    }
+}
+
+fn bridge_message(app: &AppHandle, request: serde_json::Value) -> serde_json::Value {
+    if request["type"] == "unlock_hello" {
+        return unlock_from_hello(app);
+    }
+    let kind = request["type"].as_str().unwrap_or("").to_string();
+    let response = match app.state::<AppState>().lock() {
+        Ok(mut vault) => bridge_request(&mut vault, &request),
+        Err(_) => Err(i18n::tr("Arca no está disponible", "Arca is not available")),
+    };
+    if response.is_ok() && kind == "unlock" {
+        let _ = app.emit("unlocked", ());
+    }
+    if response.is_ok() && kind == "open" {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }
+    if response.is_ok() && kind == "save" {
+        let _ = app.emit("entries-changed", ());
+    }
+    response.unwrap_or_else(|e| json!({ "error": e }))
 }
 
 fn start_bridge(app: &AppHandle) -> Result<(), String> {
@@ -579,16 +660,15 @@ fn start_bridge(app: &AppHandle) -> Result<(), String> {
     }
     let app = app.clone();
     bridge::serve(&bridge::bridge_file(), move |request| {
-        let response = match app.state::<AppState>().lock() {
-            Ok(vault) => bridge_request(&vault, &request),
-            Err(_) => Err("Arca no está disponible".into()),
-        };
-        if request["type"] == "save" && response.is_ok() {
-            let _ = app.emit("entries-changed", ());
-        }
-        response.unwrap_or_else(|e| json!({ "error": e }))
+        let english = request["lang"].as_str().map(|lang| lang == "en").unwrap_or_else(i18n::is_english);
+        i18n::with_english(english, || bridge_message(&app, request))
     })
     .map_err(err)
+}
+
+#[tauri::command]
+fn set_language(lang: String) {
+    i18n::set_english(lang == "en");
 }
 
 #[tauri::command]
@@ -665,7 +745,7 @@ async fn export_backup(window: WebviewWindow, state: State<'_, AppState>) -> Res
         .file()
         .set_parent(&window)
         .set_file_name("arca-backup.arca")
-        .add_filter("Backup de Arca", &["arca"])
+        .add_filter(i18n::tr("Backup de Arca", "Arca backup"), &["arca"])
         .blocking_save_file()
     else {
         return Ok(false);
@@ -677,10 +757,10 @@ async fn export_backup(window: WebviewWindow, state: State<'_, AppState>) -> Res
 /// Picks an Arca backup (or a CSV, once a vault exists) and returns how many entries were added.
 #[tauri::command]
 async fn import_file(window: WebviewWindow, state: State<'_, AppState>) -> Result<Option<usize>, String> {
-    let (label, extensions): (&str, &[&str]) = if state.lock().unwrap().exists()? {
-        ("Backup de Arca o CSV", &["arca", "csv"])
+    let (label, extensions): (String, &[&str]) = if state.lock().unwrap().exists()? {
+        (i18n::tr("Backup de Arca o CSV", "Arca backup or CSV"), &["arca", "csv"])
     } else {
-        ("Backup de Arca", &["arca"])
+        (i18n::tr("Backup de Arca", "Arca backup"), &["arca"])
     };
     let Some(path) = window
         .dialog()
@@ -695,7 +775,7 @@ async fn import_file(window: WebviewWindow, state: State<'_, AppState>) -> Resul
     let vault = state.lock().unwrap();
     if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("csv")) {
         let text = std::fs::read_to_string(&path)
-            .map_err(|_| "No se pudo leer el CSV; debe estar en UTF-8")?;
+            .map_err(|_| i18n::tr("No se pudo leer el CSV; debe estar en UTF-8", "Could not read the CSV; it must be UTF-8"))?;
         vault.add_entries(entries_from_csv(&text)?).map(Some)
     } else {
         vault.import_backup(&path).map(Some)
@@ -722,7 +802,7 @@ async fn unlock_with_hello(state: State<'_, AppState>) -> Result<(), String> {
         .lock()
         .unwrap()
         .hello_challenge()?
-        .ok_or("Windows Hello no está activado")?;
+        .ok_or_else(|| i18n::tr("Windows Hello no está activado", "Windows Hello is not turned on"))?;
     let signature = platform::hello_sign(&challenge, false)?;
     state.lock().unwrap().unlock_with_signature(&signature)
 }
@@ -753,7 +833,7 @@ async fn confirm(window: WebviewWindow, message: String, ok: String) -> bool {
         .message(message)
         .title("Arca")
         .kind(MessageDialogKind::Warning)
-        .buttons(MessageDialogButtons::OkCancelCustom(ok, "Cancelar".into()))
+        .buttons(MessageDialogButtons::OkCancelCustom(ok, i18n::tr("Cancelar", "Cancel")))
         .parent(&window)
         .blocking_show()
 }
@@ -773,7 +853,7 @@ fn generate_password(
         .map(|(set, _)| set.as_bytes())
         .collect();
     if sets.is_empty() {
-        return Err("Elige al menos un tipo de carácter".into());
+        return Err(i18n::tr("Elige al menos un tipo de carácter", "Choose at least one character type"));
     }
     let mut rng = os_rng();
     let pool = sets.concat();
@@ -852,7 +932,8 @@ pub fn run() {
             generate_password,
             copy_to_clipboard,
             browser_integration,
-            set_browser_integration
+            set_browser_integration,
+            set_language
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -1010,46 +1091,48 @@ mod tests {
         vault
             .save(Entry { url: "https://bank.example".into(), ..entry("Banco", "b4nk") })
             .unwrap();
-        let ask = |vault: &Vault, request: Value| bridge_request(vault, &request);
-
-        assert!(ask(&vault, json!({ "type": "status" })).is_err(), "answered with the integration off");
+        assert!(bridge_request(&mut vault, &json!({ "type": "status" })).is_err(), "answered with the integration off");
         vault.set_browser_integration(true).unwrap();
 
-        let logins = ask(&vault, json!({ "type": "logins", "url": "https://gist.github.com/new" })).unwrap();
+        let logins = bridge_request(&mut vault, &json!({ "type": "logins", "url": "https://gist.github.com/new" })).unwrap();
         assert_eq!(logins["logins"].as_array().unwrap().len(), 1);
         assert!(logins.to_string().contains("GitHub") && !logins.to_string().contains("s3cr3t"));
         for url in ["http://github.com/login", "https://evil-github.com", "https://github.com.evil.io"] {
-            let logins = ask(&vault, json!({ "type": "logins", "url": url })).unwrap();
+            let logins = bridge_request(&mut vault, &json!({ "type": "logins", "url": url })).unwrap();
             assert_eq!(logins["logins"], json!([]), "{url} got GitHub's login");
         }
         let fill = json!({ "type": "fill", "url": "https://github.com/login", "id": github });
-        assert_eq!(ask(&vault, fill).unwrap()["password"], "s3cr3t");
+        assert_eq!(bridge_request(&mut vault, &fill).unwrap()["password"], "s3cr3t");
         let foreign = json!({ "type": "fill", "url": "https://bank.example", "id": github });
-        assert!(ask(&vault, foreign).is_err(), "filled another site's login");
+        assert!(bridge_request(&mut vault, &foreign).is_err(), "filled another site's login");
 
-        let save = |kind: &str, password: &str| {
+        let save = |vault: &mut Vault, kind: &str, password: &str| {
             let request = json!({
                 "type": kind,
                 "url": "https://github.com/session",
                 "username": "giaco",
                 "password": password,
             });
-            ask(&vault, request).unwrap()["status"].clone()
+            bridge_request(vault, &request).unwrap()["status"].clone()
         };
-        assert_eq!(save("save_status", "s3cr3t"), "same");
-        assert_eq!(save("save_status", "nueva"), "update");
+        assert_eq!(save(&mut vault, "save_status", "s3cr3t"), "same");
+        assert_eq!(save(&mut vault, "save_status", "nueva"), "update");
         assert_eq!(vault.get(github).unwrap().password, "s3cr3t", "save_status wrote");
-        assert_eq!(save("save", "nueva"), "update");
+        assert_eq!(save(&mut vault, "save", "nueva"), "update");
         assert_eq!(vault.get(github).unwrap().password, "nueva");
         let request = json!({ "type": "save", "url": "https://news.example/login?next=/", "username": "yo", "password": "pw" });
-        assert_eq!(ask(&vault, request).unwrap()["status"], "new");
+        assert_eq!(bridge_request(&mut vault, &request).unwrap()["status"], "new");
         let saved = vault.entries().unwrap().into_iter().find(|e| e.username == "yo").unwrap();
         assert_eq!((saved.title.as_str(), saved.url.as_str()), ("news.example", "https://news.example"));
 
         vault.cipher = None;
-        let logins = ask(&vault, json!({ "type": "logins", "url": "https://github.com" })).unwrap();
+        let logins = bridge_request(&mut vault, &json!({ "type": "logins", "url": "https://github.com" })).unwrap();
         assert_eq!(logins, json!({ "locked": true }));
-        let generated = ask(&vault, json!({ "type": "generate" })).unwrap();
+        assert!(bridge_request(&mut vault, &json!({ "type": "unlock", "password": "otra" })).is_err());
+        assert_eq!(bridge_request(&mut vault, &json!({ "type": "unlock", "password": MASTER })).unwrap()["unlocked"], true);
+        assert_eq!(bridge_request(&mut vault, &json!({ "type": "logins", "url": "https://github.com" })).unwrap()["logins"].as_array().unwrap().len(), 1);
+        vault.cipher = None;
+        let generated = bridge_request(&mut vault, &json!({ "type": "generate" })).unwrap();
         assert_eq!(generated["password"].as_str().unwrap().len(), 20);
     }
 

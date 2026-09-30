@@ -1,61 +1,31 @@
-<p align="center">
-  <img src="src-tauri/icons/128x128.png" width="96" alt="Logo de Arca">
-</p>
+# Arca
 
-<h1 align="center">Arca</h1>
+[English](README.en.md)
 
-<p align="center">
-  Gestor de contraseñas para Windows.<br>
-  La bóveda se queda en tu equipo: sin cuenta, sin servidor y sin internet.
-</p>
+![Logo de Arca](src-tauri/icons/128x128.png)
 
-<p align="center">
-  <img alt="Licencia GPL v3" src="https://img.shields.io/badge/licencia-GPL_v3-7C5CFF">
-  <img alt="Plataforma Windows" src="https://img.shields.io/badge/plataforma-Windows-2F6FEB">
-  <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24C8DB">
-  <img alt="React" src="https://img.shields.io/badge/React-19-61DAFB">
-</p>
+Gestor de contraseñas para Windows.
+La bóveda se queda en tu equipo: sin cuenta, sin servidor y sin internet.
 
-<p align="center">
-  <a href="https://github.com/gbaldessari/arca-extension"><strong>Extensión para Chrome, Edge y Firefox →</strong></a>
-</p>
+![Licencia GPL v3](https://img.shields.io/badge/licencia-GPL_v3-7C5CFF)
+![Plataforma Windows](https://img.shields.io/badge/plataforma-Windows-2F6FEB)
+![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB)
+![React](https://img.shields.io/badge/React-19-61DAFB)
 
-<br>
+[Extensión para Chrome, Edge y Firefox](https://github.com/gbaldessari/arca-extension)
 
 ## Funciones
 
-<table>
-  <tr>
-    <td width="33%" valign="top">
-      <h3>Bóveda cifrada</h3>
-      Título, usuario, contraseña, sitio y notas. Cada entrada se cifra completa antes de tocar el disco.
-    </td>
-    <td width="33%" valign="top">
-      <h3>Generador</h3>
-      Contraseñas aleatorias del sistema, con la longitud y los caracteres que elijas, y una estimación de fortaleza.
-    </td>
-    <td width="33%" valign="top">
-      <h3>Windows Hello</h3>
-      Desbloqueo con PIN, huella o rostro. La contraseña maestra sigue funcionando.
-    </td>
-  </tr>
-  <tr>
-    <td valign="top">
-      <h3>Copias</h3>
-      Un backup <code>.arca</code> cifrado, para restaurar en otro equipo o combinar con la bóveda abierta.
-    </td>
-    <td valign="top">
-      <h3>Importar</h3>
-      CSV de Chrome, Edge, Firefox, Bitwarden, KeePass y 1Password.
-    </td>
-    <td valign="top">
-      <h3>Se bloquea sola</h3>
-      A mano, a los 5 minutos, al bloquear Windows o al suspender el equipo.
-    </td>
-  </tr>
-</table>
+| Bóveda cifrada | Generador | Windows Hello |
+| --- | --- | --- |
+| Título, usuario, contraseña, sitio y notas. Cada entrada se cifra completa antes de tocar el disco. | Contraseñas aleatorias del sistema, con la longitud y los caracteres que elijas, y una estimación de fortaleza. | Desbloqueo con PIN, huella o rostro. La contraseña maestra sigue funcionando. |
+
+| Copias | Importar | Se bloquea sola |
+| --- | --- | --- |
+| Un backup `.arca` cifrado, para restaurar en otro equipo o combinar con la bóveda abierta. | CSV de Chrome, Edge, Firefox, Bitwarden, KeePass y 1Password. | A mano, a los 5 minutos, al bloquear Windows o al suspender el equipo. |
 
 Tema claro, oscuro o el de Windows. `F11` pone la ventana en pantalla completa.
+El idioma sigue el de Windows y se puede cambiar en Ajustes.
 
 ## Cómo está hecha
 
@@ -85,7 +55,7 @@ La integración nace apagada. Al activarla en Ajustes, Arca se registra como hos
 
 El navegador no entra a ese puerto. Arranca `arca.exe`, que reenvía el mensaje. El tramo local va cifrado con la clave de esa ejecución. Al cerrar Arca, el archivo desaparece.
 
-Un sitio recibe contraseñas guardadas para su propio host. Hace falta `https`, o `http` en `localhost` y `127.0.0.1`. `www` no cuenta, y un subdominio coincide con su dominio padre. Con la bóveda bloqueada, la extensión puede saber que está bloqueada, generar una contraseña y copiar texto. No puede leer entradas.
+Un sitio recibe contraseñas guardadas para su propio host. Hace falta `https`, o `http` en `localhost` y `127.0.0.1`. `www` no cuenta, y un subdominio coincide con su dominio padre. Con la bóveda bloqueada, la extensión puede saber que está bloqueada, generar una contraseña y copiar texto. No puede leer entradas. Desde la extensión también se puede abrir Arca, si estaba cerrada, y desbloquearla con la contraseña maestra o con Windows Hello.
 
 ## Portapapeles
 
@@ -115,4 +85,4 @@ npx tauri icon app-icon.svg
 
 Software libre bajo la [GNU GPL v3](LICENSE), solo la versión 3. Se puede usar, estudiar, modificar y compartir. Quien distribuya una versión modificada tiene que publicar el código bajo la misma licencia.
 
-Copyright (C) 2026 Giacomo Baldessari.
+Copyright © 2026 Giacomo Baldessari.

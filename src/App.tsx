@@ -24,6 +24,7 @@ import {
   FingerprintPattern,
   Globe,
   KeyRound,
+  Languages,
   LoaderCircle,
   Lock,
   LockOpen,
@@ -48,6 +49,7 @@ import {
   WandSparkles,
 } from "lucide-react";
 import logo from "../app-icon.svg?no-inline";
+import { I18nProvider, useI18n } from "./i18n";
 import { applyTheme, savedTheme, ThemePref } from "./theme";
 import "./App.css";
 
@@ -83,21 +85,15 @@ const EMPTY_ENTRY: Entry = {
   favorite: false,
 };
 const AUTO_LOCK_MS = 5 * 60 * 1000;
-const CHARSETS = [
-  ["lower", "Minúsculas"],
-  ["upper", "Mayúsculas"],
-  ["digits", "Números"],
-  ["symbols", "Símbolos"],
-] as const;
-const STRENGTH = ["Muy débil", "Débil", "Aceptable", "Buena", "Muy fuerte"];
-const THEMES = [
-  ["system", "Sistema", Monitor],
-  ["light", "Claro", Sun],
-  ["dark", "Oscuro", Moon],
+const CHARSET_KEYS = ["lower", "upper", "digits", "symbols"] as const;
+const THEME_OPTIONS = [
+  ["system", Monitor],
+  ["light", Sun],
+  ["dark", Moon],
 ] as const;
 
 const confirmDialog = (message: string, ok: string) => invoke<boolean>("confirm", { message, ok });
-const entriesText = (count: number) => (count === 1 ? "1 entrada" : `${count} entradas`);
+const LANG_OPTIONS = ["system", "es", "en"] as const;
 const host = (url: string) => url.replace(/^\w+:\/\//, "").split(/[/?#]/)[0];
 const toast = (text: string) => window.dispatchEvent(new CustomEvent("arca-toast", { detail: text }));
 
@@ -107,7 +103,8 @@ export default function App() {
   useEffect(() => {
     const refresh = () => invoke<Status>("status").then(setStatus);
     refresh();
-    const unlisten = listen("locked", refresh);
+    const locked = listen("locked", refresh);
+    const unlocked = listen("unlocked", refresh);
     const fullscreen = async (e: KeyboardEvent) => {
       if (e.key !== "F11") return;
       e.preventDefault();
@@ -116,12 +113,14 @@ export default function App() {
     };
     addEventListener("keydown", fullscreen);
     return () => {
-      unlisten.then((stop) => stop());
+      locked.then((stop) => stop());
+      unlocked.then((stop) => stop());
       removeEventListener("keydown", fullscreen);
     };
   }, []);
 
   return (
+    <I18nProvider>
     <LucideProvider size={16} strokeWidth={2}>
       {status === "unlocked" ? (
         <Vault onLock={() => invoke("lock")} />
@@ -130,20 +129,37 @@ export default function App() {
       )}
       <Toast />
     </LucideProvider>
+    </I18nProvider>
   );
 }
 
 function Unlock({ isNew, onStatus }: { isNew: boolean; onStatus: (status: Status) => void }) {
+  const { t } = useI18n();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [notice, setNotice] = useState<Notice>(null);
   const [busy, setBusy] = useState(false);
-  const [hello, setHello] = useState(false);
+  const [hello, setHello] = useState<boolean | null>(isNew ? false : null);
   const [shaking, setShaking] = useState(false);
+  const passwordRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!isNew) invoke<HelloStatus>("hello_status").then((h) => setHello(h.available && h.enabled));
+    if (isNew) return;
+    let cancelled = false;
+    invoke<HelloStatus>("hello_status").then((h) => {
+      if (cancelled) return;
+      const enabled = h.available && h.enabled;
+      setHello(enabled);
+      if (enabled) run(() => invoke("unlock_with_hello"));
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [isNew]);
+
+  useEffect(() => {
+    if (hello === false) passwordRef.current?.focus();
+  }, [hello]);
 
   const fail = (text: string) => {
     setNotice({ text, error: true });
@@ -164,7 +180,7 @@ function Unlock({ isNew, onStatus }: { isNew: boolean; onStatus: (status: Status
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (isNew && password !== confirm) return fail("Las contraseñas no coinciden");
+    if (isNew && password !== confirm) return fail(t("passwordsDontMatch"));
     run(() => invoke(isNew ? "create_vault" : "unlock", { password }));
   }
 
@@ -173,7 +189,7 @@ function Unlock({ isNew, onStatus }: { isNew: boolean; onStatus: (status: Status
       const count = await invoke<number | null>("import_file");
       if (count === null) return;
       setNotice({
-        text: `Backup restaurado (${entriesText(count)}). Ingresa la contraseña maestra con la que lo creaste.`,
+        text: t("restored", { count: count === 1 ? t("oneEntry") : t("manyEntries", { count }) }),
       });
       onStatus("locked");
     } catch (err) {
@@ -191,15 +207,15 @@ function Unlock({ isNew, onStatus }: { isNew: boolean; onStatus: (status: Status
         <img src={logo} alt="" className="unlock-logo" />
         <h1>Arca</h1>
         <p className="muted">
-          {isNew ? "Crea la contraseña maestra que protegerá tu bóveda." : "Tu bóveda está bloqueada."}
+          {isNew ? t("masterCreates") : t("vaultLocked")}
         </p>
         <div className="field">
           <KeyRound className="field-icon" />
           <input
             type="password"
-            aria-label="Contraseña maestra"
-            placeholder="Contraseña maestra"
-            autoFocus
+            aria-label={t("masterPassword")}
+            placeholder={t("masterPassword")}
+            ref={passwordRef}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
@@ -211,30 +227,30 @@ function Unlock({ isNew, onStatus }: { isNew: boolean; onStatus: (status: Status
               <KeyRound className="field-icon" />
               <input
                 type="password"
-                aria-label="Repetir contraseña maestra"
-                placeholder="Repite la contraseña"
+                aria-label={t("repeatMaster")}
+                placeholder={t("repeatPassword")}
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
               />
             </div>
-            <p className="hint">Mínimo 8 caracteres. Si la olvidas, no hay forma de recuperar tus datos.</p>
+            <p className="hint">{t("forgetHint")}</p>
           </>
         )}
         <Message notice={notice} />
-        <button className="primary big" disabled={busy || !password}>
-          {busy ? <LoaderCircle className="spin" /> : isNew ? <ShieldCheck /> : <LockOpen />}
-          {busy ? "Un momento…" : isNew ? "Crear bóveda" : "Desbloquear"}
-        </button>
         {hello && (
-          <button type="button" className="big" disabled={busy} onClick={() => run(() => invoke("unlock_with_hello"))}>
-            <FingerprintPattern />
-            Usar Windows Hello
+          <button type="button" className="primary big" disabled={busy} onClick={() => run(() => invoke("unlock_with_hello"))}>
+            {busy ? <LoaderCircle className="spin" /> : <FingerprintPattern />}
+            {busy ? t("waitingHello") : t("unlockHello")}
           </button>
         )}
+        <button className={hello ? "big" : "primary big"} disabled={busy || !password}>
+          {busy && !hello ? <LoaderCircle className="spin" /> : isNew ? <ShieldCheck /> : <LockOpen />}
+          {busy && !hello ? t("oneMoment") : isNew ? t("createVault") : hello ? t("useMaster") : t("unlock")}
+        </button>
         {isNew && (
           <button type="button" className="link" onClick={restore}>
             <ArchiveRestore />
-            Restaurar desde un backup
+            {t("restoreBackup")}
           </button>
         )}
       </form>
@@ -243,6 +259,7 @@ function Unlock({ isNew, onStatus }: { isNew: boolean; onStatus: (status: Status
 }
 
 function Vault({ onLock }: { onLock: () => void }) {
+  const { t } = useI18n();
   const [entries, setEntries] = useState<Summary[]>([]);
   const [pane, setPane] = useState<Pane>("generator");
   const [query, setQuery] = useState("");
@@ -260,7 +277,7 @@ function Vault({ onLock }: { onLock: () => void }) {
   const open = (id: number) => invoke<Entry>("get_entry", { id }).then(show, showError);
 
   async function leave(next: () => void) {
-    if (dirty.current && !(await confirmDialog("Tienes cambios sin guardar. ¿Quieres descartarlos?", "Descartar")))
+    if (dirty.current && !(await confirmDialog(t("discardChanges"), t("discard"))))
       return;
     dirty.current = false;
     next();
@@ -305,20 +322,20 @@ function Vault({ onLock }: { onLock: () => void }) {
           <Search className="field-icon" />
           <input
             type="search"
-            aria-label="Buscar"
-            placeholder="Buscar…"
+            aria-label={t("search")}
+            placeholder={t("searchPlaceholder")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
         <button className="primary" onClick={() => leave(() => show({ ...EMPTY_ENTRY }))}>
           <Plus />
-          Nueva entrada
+          {t("newEntry")}
         </button>
         <p className="section-label">
-          Entradas <span>{entries.length}</span>
+          {t("entries")} <span>{entries.length}</span>
         </p>
-        <nav aria-label="Entradas" className="list">
+        <nav aria-label={t("entries")} className="list">
           {shown.map((e) => (
             <button
               key={e.id}
@@ -329,47 +346,47 @@ function Vault({ onLock }: { onLock: () => void }) {
               <Avatar title={e.title} />
               <span className="item-text">
                 <strong>{e.title}</strong>
-                <span>{e.username || "Sin usuario"}</span>
+                <span>{e.username || t("noUsername")}</span>
               </span>
-              {e.favorite && <Star className="fav" aria-label="Favorito" />}
+              {e.favorite && <Star className="fav" aria-label={t("favorite")} />}
             </button>
           ))}
           {!shown.length && (
             <div className="empty">
               {entries.length ? <SearchX /> : <VaultIcon />}
-              <p>{entries.length ? "Sin resultados" : "Todavía no hay entradas"}</p>
+              <p>{entries.length ? t("noResults") : t("noEntries")}</p>
             </div>
           )}
         </nav>
         <div className="sidebar-footer">
           <button
             className="nav"
-            title="Generador"
+            title={t("generator")}
             aria-current={pane === "generator"}
             onClick={() => leave(() => show("generator"))}
           >
             <WandSparkles />
-            <span>Generador</span>
+            <span>{t("generator")}</span>
           </button>
           <button
             className="nav"
-            title="Ajustes"
+            title={t("settings")}
             aria-current={pane === "settings"}
             onClick={() => leave(() => show("settings"))}
           >
             <SettingsIcon />
-            <span>Ajustes</span>
+            <span>{t("settings")}</span>
           </button>
-          <button className="nav" title="Bloquear" onClick={() => leave(onLock)}>
+          <button className="nav" title={t("lock")} onClick={() => leave(onLock)}>
             <Lock />
-            <span>Bloquear</span>
+            <span>{t("lock")}</span>
           </button>
         </div>
       </aside>
       <main>
         <button className="link back" onClick={() => setView("list")}>
           <ArrowLeft />
-          Entradas
+          {t("backToEntries")}
         </button>
         <Message notice={error ? { text: error, error: true } : null} />
         <div className="pane" key={current ? `entry-${current.id ?? "new"}` : String(pane)}>
@@ -392,7 +409,7 @@ function Vault({ onLock }: { onLock: () => void }) {
             <Settings onImported={load} />
           ) : (
             <>
-              <h2>Generador de contraseñas</h2>
+              <h2>{t("passwordGenerator")}</h2>
               <Generator />
             </>
           )}
@@ -413,6 +430,7 @@ function EntryForm({
   onSaved: (id: number) => void;
   onDeleted: () => void;
 }) {
+  const { t } = useI18n();
   const [form, setForm] = useState(entry);
   const [saved, setSaved] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -446,7 +464,7 @@ function EntryForm({
       const id = await invoke<number>("save_entry", { entry: form });
       dirty.current = false;
       setSaved(true);
-      toast("Entrada guardada");
+      toast(t("savedEntry"));
       onSaved(id);
     } catch (err) {
       setError(String(err));
@@ -454,11 +472,11 @@ function EntryForm({
   }
 
   async function remove() {
-    if (!(await confirmDialog(`¿Eliminar "${form.title}"? No se puede deshacer.`, "Eliminar"))) return;
+    if (!(await confirmDialog(t("deleteConfirm", { title: form.title }), t("delete")))) return;
     try {
       await invoke("delete_entry", { id: form.id });
       dirty.current = false;
-      toast("Entrada eliminada");
+      toast(t("deletedEntry"));
       onDeleted();
     } catch (err) {
       setError(String(err));
@@ -470,11 +488,11 @@ function EntryForm({
       <header className="entry-header">
         <Avatar title={form.title} large />
         <div className="entry-heading">
-          <h2>{form.title || "Nueva entrada"}</h2>
-          <p className="muted">{host(form.url) || "Sin sitio web"}</p>
+          <h2>{form.title || t("newEntry")}</h2>
+          <p className="muted">{host(form.url) || t("noWebsite")}</p>
         </div>
         <IconButton
-          label="Favorito"
+          label={t("favorite")}
           className="icon-btn star-btn"
           aria-pressed={form.favorite}
           onClick={() => update({ favorite: !form.favorite })}
@@ -483,31 +501,31 @@ function EntryForm({
         </IconButton>
       </header>
 
-      <label htmlFor="title">Título</label>
+      <label htmlFor="title">{t("title")}</label>
       <div className="field">
         <input required autoFocus={form.id === null} {...field("title")} />
       </div>
 
-      <label htmlFor="username">Usuario</label>
+      <label htmlFor="username">{t("username")}</label>
       <div className="field">
         <User className="field-icon" />
         <input {...field("username")} />
-        <CopyButton text={form.username} label="Copiar usuario" done="Usuario copiado" />
+        <CopyButton text={form.username} label={t("copyUsername")} done={t("usernameCopied")} />
       </div>
 
-      <label htmlFor="password">Contraseña</label>
+      <label htmlFor="password">{t("password")}</label>
       <div className="field">
         <KeyRound className="field-icon" />
         <input type={showPassword ? "text" : "password"} className="mono" {...field("password")} />
         <IconButton
-          label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+          label={showPassword ? t("hidePassword") : t("showPassword")}
           onClick={() => setShowPassword(!showPassword)}
         >
           {showPassword ? <EyeOff /> : <Eye />}
         </IconButton>
-        <CopyButton text={form.password} label="Copiar contraseña" done="Contraseña copiada" />
+        <CopyButton text={form.password} label={t("copyPassword")} done={t("passwordCopied")} />
         <IconButton
-          label="Generar contraseña"
+          label={t("generatePassword")}
           aria-expanded={showGenerator}
           onClick={() => setShowGenerator(!showGenerator)}
         >
@@ -524,13 +542,13 @@ function EntryForm({
         />
       )}
 
-      <label htmlFor="url">Sitio web</label>
+      <label htmlFor="url">{t("website")}</label>
       <div className="field">
         <Globe className="field-icon" />
         <input placeholder="https://" {...field("url")} />
       </div>
 
-      <label htmlFor="notes">Notas</label>
+      <label htmlFor="notes">{t("notes")}</label>
       <div className="field">
         <textarea rows={3} {...field("notes")} />
       </div>
@@ -540,12 +558,12 @@ function EntryForm({
         {form.id !== null && (
           <button type="button" className="danger" onClick={remove}>
             <Trash />
-            Eliminar
+            {t("delete")}
           </button>
         )}
         <button type="submit" className="primary">
           {saved ? <Check /> : <Save />}
-          {saved ? "Guardado" : "Guardar"}
+          {saved ? t("saved") : t("save")}
         </button>
       </div>
     </form>
@@ -553,9 +571,10 @@ function EntryForm({
 }
 
 function Settings({ onImported }: { onImported: () => void }) {
+  const { t } = useI18n();
   return (
     <div className="settings">
-      <h2>Ajustes</h2>
+      <h2>{t("settings")}</h2>
       <Appearance />
       <ChangePassword />
       <HelloSettings />
@@ -566,34 +585,51 @@ function Settings({ onImported }: { onImported: () => void }) {
 }
 
 function Appearance() {
+  const { t, pref, setPref } = useI18n();
   const [theme, setTheme] = useState<ThemePref>(savedTheme);
+  const themeLabel = { system: t("system"), light: t("light"), dark: t("dark") };
+  const langLabel = { system: t("system"), es: "Español", en: "English" };
 
-  const choose = (pref: ThemePref) => {
-    setTheme(pref);
-    applyTheme(pref);
+  const choose = (next: ThemePref) => {
+    setTheme(next);
+    applyTheme(next);
   };
 
   return (
     <section className="panel">
       <h3>
         <Palette />
-        Apariencia
+        {t("appearance")}
       </h3>
-      <div className="segmented" role="radiogroup" aria-label="Tema">
-        {THEMES.map(([value, label, Icon]) => (
+      <div className="segmented" role="radiogroup" aria-label={t("theme")}>
+        {THEME_OPTIONS.map(([value, Icon]) => (
           <label key={value} className="segment">
             <input type="radio" name="theme" checked={theme === value} onChange={() => choose(value)} />
             <Icon />
-            {label}
+            {themeLabel[value]}
           </label>
         ))}
       </div>
-      <p className="muted">"Sistema" sigue el modo claro u oscuro de Windows. Pulsa F11 para pantalla completa.</p>
+      <p className="muted">{t("themeHint")}</p>
+      <h3>
+        <Languages />
+        {t("language")}
+      </h3>
+      <div className="segmented" role="radiogroup" aria-label={t("language")}>
+        {LANG_OPTIONS.map((value) => (
+          <label key={value} className="segment">
+            <input type="radio" name="language" checked={pref === value} onChange={() => setPref(value)} />
+            {langLabel[value]}
+          </label>
+        ))}
+      </div>
+      <p className="muted">{t("languageHint")}</p>
     </section>
   );
 }
 
 function BrowserIntegration() {
+  const { t } = useI18n();
   const [enabled, setEnabled] = useState<boolean>();
   const [notice, setNotice] = useState<Notice>(null);
 
@@ -605,7 +641,7 @@ function BrowserIntegration() {
     try {
       await invoke("set_browser_integration", { enabled: next });
       setEnabled(next);
-      setNotice(next ? { text: "Listo: la extensión de Arca ya puede conectarse con esta app." } : null);
+      setNotice(next ? { text: t("integrationReady") } : null);
     } catch (err) {
       setNotice({ text: String(err), error: true });
     }
@@ -616,15 +652,14 @@ function BrowserIntegration() {
     <section className="panel">
       <h3>
         <Puzzle />
-        Integración con el navegador
+        {t("browserIntegration")}
       </h3>
       <label className="switch">
         <input type="checkbox" role="switch" checked={enabled} onChange={(e) => toggle(e.target.checked)} />
-        Permitir que la extensión rellene, sugiera y guarde contraseñas
+        {t("allowExtension")}
       </label>
       <p className="muted">
-        La extensión para Chrome, Edge y Firefox habla solo con esta app, en tu equipo y cifrado. Solo recibe las
-        contraseñas del sitio que tienes abierto, y únicamente mientras Arca está desbloqueada.
+        {t("integrationHint")}
       </p>
       <Message notice={notice} />
     </section>
@@ -632,6 +667,7 @@ function BrowserIntegration() {
 }
 
 function ChangePassword() {
+  const { t } = useI18n();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [repeat, setRepeat] = useState("");
@@ -640,14 +676,14 @@ function ChangePassword() {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (next !== repeat) return setNotice({ text: "Las contraseñas nuevas no coinciden", error: true });
+    if (next !== repeat) return setNotice({ text: t("newPasswordsDontMatch"), error: true });
     setBusy(true);
     try {
       await invoke("change_master_password", { current, newPassword: next });
       setCurrent("");
       setNext("");
       setRepeat("");
-      setNotice({ text: "Contraseña maestra actualizada." });
+      setNotice({ text: t("masterUpdated") });
     } catch (err) {
       setNotice({ text: String(err), error: true });
     }
@@ -658,13 +694,13 @@ function ChangePassword() {
     <form className="panel" onSubmit={submit}>
       <h3>
         <KeyRound />
-        Contraseña maestra
+        {t("masterPassword")}
       </h3>
       <div className="field">
         <input
           type="password"
-          aria-label="Contraseña actual"
-          placeholder="Contraseña actual"
+          aria-label={t("currentPassword")}
+          placeholder={t("currentPassword")}
           value={current}
           onChange={(e) => setCurrent(e.target.value)}
         />
@@ -672,8 +708,8 @@ function ChangePassword() {
       <div className="field">
         <input
           type="password"
-          aria-label="Nueva contraseña maestra"
-          placeholder="Nueva contraseña"
+          aria-label={t("newMaster")}
+          placeholder={t("newPassword")}
           value={next}
           onChange={(e) => setNext(e.target.value)}
         />
@@ -682,8 +718,8 @@ function ChangePassword() {
       <div className="field">
         <input
           type="password"
-          aria-label="Repetir nueva contraseña maestra"
-          placeholder="Repite la nueva contraseña"
+          aria-label={t("repeatNewMaster")}
+          placeholder={t("repeatNew")}
           value={repeat}
           onChange={(e) => setRepeat(e.target.value)}
         />
@@ -691,13 +727,14 @@ function ChangePassword() {
       <Message notice={notice} />
       <button className="primary" disabled={busy || !current || !next}>
         {busy && <LoaderCircle className="spin" />}
-        {busy ? "Un momento…" : "Cambiar contraseña"}
+        {busy ? t("oneMoment") : t("changePassword")}
       </button>
     </form>
   );
 }
 
 function HelloSettings() {
+  const { t } = useI18n();
   const [hello, setHello] = useState<HelloStatus>();
   const [password, setPassword] = useState("");
   const [notice, setNotice] = useState<Notice>(null);
@@ -714,7 +751,7 @@ function HelloSettings() {
     try {
       await invoke(hello?.enabled ? "disable_hello" : "enable_hello", { password });
       setPassword("");
-      setNotice({ text: hello?.enabled ? "Windows Hello desactivado." : "Windows Hello activado." });
+      setNotice({ text: hello?.enabled ? t("helloOff") : t("helloOn") });
       await refresh();
     } catch (err) {
       setNotice({ text: String(err), error: true });
@@ -730,20 +767,18 @@ function HelloSettings() {
         Windows Hello
       </h3>
       {!hello.available ? (
-        <p className="muted">No disponible: configura un PIN, huella o rostro en la configuración de Windows.</p>
+        <p className="muted">{t("helloUnavailable")}</p>
       ) : (
         <>
           <p className="muted">
-            {hello.enabled
-              ? "Puedes desbloquear Arca con tu PIN, huella o rostro."
-              : "Desbloquea Arca con tu PIN, huella o rostro. La contraseña maestra seguirá funcionando."}
+            {hello.enabled ? t("helloEnabledHint") : t("helloDisabledHint")}
           </p>
           {!hello.enabled && (
             <div className="field">
               <input
                 type="password"
-                aria-label="Contraseña maestra"
-                placeholder="Contraseña maestra"
+                aria-label={t("masterPassword")}
+                placeholder={t("masterPassword")}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
@@ -752,7 +787,7 @@ function HelloSettings() {
           <Message notice={notice} />
           <button className={hello.enabled ? undefined : "primary"} disabled={busy || (!hello.enabled && !password)}>
             {busy ? <LoaderCircle className="spin" /> : <FingerprintPattern />}
-            {busy ? "Esperando a Windows Hello…" : hello.enabled ? "Desactivar" : "Activar"}
+            {busy ? t("waitingHello") : hello.enabled ? t("disable") : t("enable")}
           </button>
         </>
       )}
@@ -761,18 +796,21 @@ function HelloSettings() {
 }
 
 function Backups({ onImported }: { onImported: () => void }) {
+  const { t } = useI18n();
   const [notice, setNotice] = useState<Notice>(null);
   const fail = (err: unknown) => setNotice({ text: String(err), error: true });
 
   const exportBackup = () =>
     invoke<boolean>("export_backup").then((saved) => {
-      if (saved) setNotice({ text: "Backup guardado. Está cifrado: para abrirlo hace falta tu contraseña maestra." });
+      if (saved) setNotice({ text: t("backupSaved") });
     }, fail);
 
   const importFile = () =>
     invoke<number | null>("import_file").then((count) => {
       if (count === null) return;
-      setNotice({ text: count ? `Se importaron ${entriesText(count)}.` : "No había entradas nuevas para importar." });
+      setNotice({
+        text: count ? t("imported", { count: count === 1 ? t("oneEntry") : t("manyEntries", { count }) }) : t("nothingNew"),
+      });
       onImported();
     }, fail);
 
@@ -780,20 +818,19 @@ function Backups({ onImported }: { onImported: () => void }) {
     <section className="panel">
       <h3>
         <DatabaseBackup />
-        Copias de seguridad e importación
+        {t("backups")}
       </h3>
       <p className="muted">
-        El backup es una copia cifrada de tu bóveda. También puedes importar el CSV que exportan Chrome, Edge,
-        Firefox, Bitwarden, KeePass o 1Password; después bórralo, porque guarda tus contraseñas sin cifrar.
+        {t("backupsHint")}
       </p>
       <div className="row">
         <button onClick={exportBackup}>
           <Download />
-          Exportar backup
+          {t("exportBackup")}
         </button>
         <button onClick={importFile}>
           <Upload />
-          Importar backup o CSV
+          {t("importBackup")}
         </button>
       </div>
       <Message notice={notice} />
@@ -802,6 +839,13 @@ function Backups({ onImported }: { onImported: () => void }) {
 }
 
 function Generator({ onUse }: { onUse?: (password: string) => void }) {
+  const { t } = useI18n();
+  const charsets = [
+    ["lower", t("lowercase")],
+    ["upper", t("uppercase")],
+    ["digits", t("digits")],
+    ["symbols", t("symbols")],
+  ] as const;
   const [options, setOptions] = useState<GeneratorOptions>({
     length: 20,
     lower: true,
@@ -815,22 +859,22 @@ function Generator({ onUse }: { onUse?: (password: string) => void }) {
     invoke<string>("generate_password", options).then(setPassword);
   }, [options]);
 
-  const enabledSets = CHARSETS.filter(([key]) => options[key]).length;
+  const enabledSets = CHARSET_KEYS.filter((key) => options[key]).length;
 
   return (
-    <section className="panel generator" aria-label="Generador de contraseñas">
+    <section className="panel generator" aria-label={t("passwordGenerator")}>
       <div className="generated">
         <output key={password} className="mono">
           {password}
         </output>
-        <IconButton label="Regenerar" className="icon-btn regenerate" onClick={() => setOptions({ ...options })}>
+        <IconButton label={t("regenerate")} className="icon-btn regenerate" onClick={() => setOptions({ ...options })}>
           <RefreshCw />
         </IconButton>
-        <CopyButton text={password} label="Copiar contraseña generada" done="Contraseña copiada" />
+        <CopyButton text={password} label={t("copyGenerated")} done={t("passwordCopied")} />
       </div>
       <Strength password={password} />
       <label className="slider">
-        <span>Longitud</span>
+        <span>{t("length")}</span>
         <strong>{options.length}</strong>
         <input
           type="range"
@@ -841,7 +885,7 @@ function Generator({ onUse }: { onUse?: (password: string) => void }) {
         />
       </label>
       <div className="chips">
-        {CHARSETS.map(([key, label]) => (
+        {charsets.map(([key, label]) => (
           <label key={key} className="chip">
             <input
               type="checkbox"
@@ -857,7 +901,7 @@ function Generator({ onUse }: { onUse?: (password: string) => void }) {
       {onUse && (
         <button type="button" className="primary" onClick={() => onUse(password)}>
           <Check />
-          Usar esta
+          {t("useThis")}
         </button>
       )}
     </section>
@@ -865,6 +909,8 @@ function Generator({ onUse }: { onUse?: (password: string) => void }) {
 }
 
 function Strength({ password, inputs = [] }: { password: string; inputs?: string[] }) {
+  const { t } = useI18n();
+  const strength = [t("veryWeak"), t("weak"), t("fair"), t("good"), t("veryStrong")];
   const [score, setScore] = useState(0);
 
   useEffect(() => {
@@ -875,7 +921,7 @@ function Strength({ password, inputs = [] }: { password: string; inputs?: string
   return (
     <div className="strength" data-score={score}>
       <span className="bar" />
-      <span className="label">{STRENGTH[score]}</span>
+      <span className="label">{strength[score]}</span>
     </div>
   );
 }
@@ -894,12 +940,13 @@ function IconButton({ label, className = "icon-btn", ...props }: { label: string
 }
 
 function CopyButton({ text, label, done }: { text: string; label: string; done: string }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
 
   const copy = () =>
     invoke("copy_to_clipboard", { text }).then(() => {
       setCopied(true);
-      toast(`${done} · se borrará en 30 s`);
+      toast(t("copiedClear", { text: done }));
       window.setTimeout(() => setCopied(false), 1500);
     });
 

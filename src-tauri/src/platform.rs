@@ -94,11 +94,15 @@ pub fn hello_delete() {
 fn check(status: windows::core::Result<KeyCredentialStatus>) -> Result<(), String> {
     match status.map_err(|e| e.to_string())? {
         KeyCredentialStatus::Success => Ok(()),
-        KeyCredentialStatus::UserCanceled => Err("Cancelaste Windows Hello".into()),
-        KeyCredentialStatus::NotFound => {
-            Err("Windows Hello no está configurado para Arca en este equipo".into())
-        }
-        _ => Err("Windows Hello no pudo verificar tu identidad".into()),
+        KeyCredentialStatus::UserCanceled => Err(crate::i18n::tr("Cancelaste Windows Hello", "You cancelled Windows Hello")),
+        KeyCredentialStatus::NotFound => Err(crate::i18n::tr(
+            "Windows Hello no está configurado para Arca en este equipo",
+            "Windows Hello is not set up for Arca on this device",
+        )),
+        _ => Err(crate::i18n::tr(
+            "Windows Hello no pudo verificar tu identidad",
+            "Windows Hello could not verify your identity",
+        )),
     }
 }
 
