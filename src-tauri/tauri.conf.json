@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Arca",
+  "version": "0.1.0",
+  "identifier": "com.arca.vault",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Arca",
+        "width": 960,
+        "height": 640,
+        "minWidth": 380,
+        "minHeight": 420,
+        "visible": false,
+        "generalAutofillEnabled": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "publisher": "Arca",
+    "shortDescription": "Gestor de contraseñas local",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "wix": {
+        "language": "es-ES",
+        "upgradeCode": "eddce342-9c96-5c3d-8deb-f7ad0816a8b8"
+      },
+      "nsis": {
+        "languages": ["Spanish"]
+      }
+    }
+  }
+}
