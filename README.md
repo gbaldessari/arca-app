@@ -4,7 +4,7 @@ Gestor de contraseñas de escritorio para Windows. La bóveda vive en el equipo:
 
 La interfaz está hecha con React y TypeScript. Todo lo que toca una contraseña o una clave está en Rust. Este repositorio se publica para que ese código se pueda leer y auditar. La extensión de navegador, que es un proyecto aparte, está en [arca-extension](https://github.com/gbaldessari/arca-extension).
 
-Todavía no hay una licencia de uso elegida. Publicar el repositorio permite revisarlo; no autoriza por sí solo a reutilizarlo.
+Arca es software libre bajo la [GNU GPL v3](LICENSE), solo la versión 3. Se puede usar, estudiar, modificar y compartir. Quien distribuya una versión modificada tiene que publicar el código fuente bajo la misma licencia. Copyright (C) 2026 Giacomo Baldessari.
 
 ## Qué hace
 
