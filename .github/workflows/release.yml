@@ -35,9 +35,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Arca ${{ github.ref_name }}
-          releaseBody: |
-            Instaladores de Arca para Windows.
-            Windows installers for Arca.
+          releaseBody: Windows installers for Arca.
           releaseDraft: false
           prerelease: false
           generateReleaseNotes: true
