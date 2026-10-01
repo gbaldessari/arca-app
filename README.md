@@ -53,7 +53,7 @@ Windows Hello is optional. A TPM key signs a challenge, and that signature deriv
 
 Integration starts turned off. When you turn it on in Settings, Arca registers itself as the `com.arca.vault` host for Chrome, Edge, and Firefox, opens a random port on `127.0.0.1`, and writes that port plus a new key to `%LOCALAPPDATA%\com.arca.vault\bridge.json`. That key lives only while the app is open.
 
-The browser does not connect to that port. It starts `arca.exe`, which forwards the message. The local hop is encrypted with that run's key. When Arca closes, the file disappears.
+The browser does not connect to that port. It starts `arca.exe`, which forwards the message. The local hop is encrypted with that run's key. When Arca closes, the file disappears. The host accepts the unpacked extension and the Edge Add-ons extension `peadbjdjjofiieihgijnjhlnmpeihiok`.
 
 A site receives passwords saved for its own host. The page must be `https`, or `http` on `localhost` and `127.0.0.1`. `www` does not count, and a subdomain matches its parent domain. While the vault is locked, the extension can tell that it is locked, generate a password, and copy text. It cannot read entries. From the extension you can also open Arca, if it was closed, and unlock it with the master password or with Windows Hello.
 

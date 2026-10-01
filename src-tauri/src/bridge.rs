@@ -29,7 +29,12 @@ use windows::{
 use crate::{decrypt, encrypt, err, os_rng};
 
 const HOST_NAME: &str = "com.arca.vault";
-const CHROME_ORIGIN: &str = "chrome-extension://jnjphfockignkgdhnlpmobbcgchmbeab/";
+// Unpacked loads keep the id pinned by the manifest key. Edge Add-ons signs the store package
+// and assigns the second id.
+const CHROME_ORIGINS: &[&str] = &[
+    "chrome-extension://jnjphfockignkgdhnlpmobbcgchmbeab/",
+    "chrome-extension://peadbjdjjofiieihgijnjhlnmpeihiok/",
+];
 const FIREFOX_ID: &str = "arca@arca.vault";
 const MAX_MESSAGE: usize = 1 << 20;
 const NOT_RUNNING: &str = "Arca no está abierta";
@@ -49,7 +54,7 @@ pub fn bridge_file() -> PathBuf {
 
 /// Browsers start the host with the extension's origin (Chrome, Edge) or ID (Firefox) as an argument.
 pub fn is_native_host() -> bool {
-    env::args().skip(1).any(|arg| arg == CHROME_ORIGIN || arg == FIREFOX_ID)
+    env::args().skip(1).any(|arg| CHROME_ORIGINS.contains(&arg.as_str()) || arg == FIREFOX_ID)
 }
 
 /// Relays native messages (32-bit length + JSON) between the browser and the running app.
@@ -224,8 +229,8 @@ pub fn register() -> Result<(), String> {
     let exe = env::current_exe().map_err(err)?;
     let dir = data_dir();
     fs::create_dir_all(&dir).map_err(err)?;
-    let chrome = write_manifest(&dir.join("chrome-host.json"), &exe, "allowed_origins", CHROME_ORIGIN)?;
-    let firefox = write_manifest(&dir.join("firefox-host.json"), &exe, "allowed_extensions", FIREFOX_ID)?;
+    let chrome = write_manifest(&dir.join("chrome-host.json"), &exe, "allowed_origins", CHROME_ORIGINS)?;
+    let firefox = write_manifest(&dir.join("firefox-host.json"), &exe, "allowed_extensions", &[FIREFOX_ID])?;
     for (key, manifest) in REGISTRY_KEYS.iter().zip([&chrome, &chrome, &firefox]) {
         set_default_value(key, manifest)?;
     }
@@ -238,14 +243,14 @@ pub fn unregister() {
     }
 }
 
-fn write_manifest(path: &Path, exe: &Path, allowed_key: &str, allowed: &str) -> Result<PathBuf, String> {
+fn write_manifest(path: &Path, exe: &Path, allowed_key: &str, allowed: &[&str]) -> Result<PathBuf, String> {
     let mut manifest = json!({
         "name": HOST_NAME,
         "description": "Arca",
         "path": exe.to_string_lossy(),
         "type": "stdio",
     });
-    manifest[allowed_key] = json!([allowed]);
+    manifest[allowed_key] = json!(allowed);
     fs::write(path, manifest.to_string()).map_err(err)?;
     Ok(path.to_path_buf())
 }
@@ -269,6 +274,16 @@ fn set_default_value(key: &str, value: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_manifest_allows_the_store_extension() {
+        let path = env::temp_dir().join(format!("arca-host-test-{}.json", std::process::id()));
+        write_manifest(&path, Path::new("arca.exe"), "allowed_origins", CHROME_ORIGINS).unwrap();
+        let manifest: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        let origins = manifest["allowed_origins"].as_array().unwrap();
+        assert!(origins.iter().any(|origin| origin.as_str() == Some("chrome-extension://peadbjdjjofiieihgijnjhlnmpeihiok/")));
+        fs::remove_file(&path).unwrap();
+    }
 
     #[test]
     fn only_session_actions_start_the_app() {

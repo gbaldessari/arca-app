@@ -53,7 +53,7 @@ Windows Hello es opcional. Una clave del TPM firma un desafío, y de esa firma s
 
 La integración nace apagada. Al activarla en Ajustes, Arca se registra como host `com.arca.vault` para Chrome, Edge y Firefox, abre un puerto al azar en `127.0.0.1` y anota ese puerto junto con una clave nueva en `%LOCALAPPDATA%\com.arca.vault\bridge.json`. Esa clave vive solo mientras la app está abierta.
 
-El navegador no entra a ese puerto. Arranca `arca.exe`, que reenvía el mensaje. El tramo local va cifrado con la clave de esa ejecución. Al cerrar Arca, el archivo desaparece.
+El navegador no entra a ese puerto. Arranca `arca.exe`, que reenvía el mensaje. El tramo local va cifrado con la clave de esa ejecución. Al cerrar Arca, el archivo desaparece. El host acepta la extensión sin empaquetar y la de Edge Add-ons `peadbjdjjofiieihgijnjhlnmpeihiok`.
 
 Un sitio recibe contraseñas guardadas para su propio host. Hace falta `https`, o `http` en `localhost` y `127.0.0.1`. `www` no cuenta, y un subdominio coincide con su dominio padre. Con la bóveda bloqueada, la extensión puede saber que está bloqueada, generar una contraseña y copiar texto. No puede leer entradas. Desde la extensión también se puede abrir Arca, si estaba cerrada, y desbloquearla con la contraseña maestra o con Windows Hello.
 
